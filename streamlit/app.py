@@ -7,6 +7,43 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime
+import hashlib
+
+# ============================================================
+# AUTENTICACIÓN
+# ============================================================
+
+def verificar_contraseña(contraseña):
+    """Verifica la contraseña (hasheada)"""
+    contraseña_hasheada = hashlib.sha256(contraseña.encode()).hexdigest()
+    # Contraseña: BBC
+    contraseña_correcta = hashlib.sha256("BBC".encode()).hexdigest()
+    return contraseña_hasheada == contraseña_correcta
+
+def login():
+    """Interfaz de login"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.title("🔐 Biblioteca de Precios")
+        st.write("Ingresa tu contraseña para acceder")
+        
+        contraseña = st.text_input("Contraseña", type="password")
+        
+        if st.button("Ingresar"):
+            if verificar_contraseña(contraseña):
+                st.session_state.autenticado = True
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta")
+
+# Verificar autenticación
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+
+if not st.session_state.autenticado:
+    login()
+    st.stop()
 
 # ============================================================
 # CONFIGURACIÓN PÁGINA
@@ -107,10 +144,15 @@ CREATE TABLE IF NOT EXISTS cotizaciones (
 conn.commit()
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR CON BOTÓN CERRAR SESIÓN
 # ============================================================
 
 st.sidebar.title("📦 MENÚ")
+
+# Botón de cerrar sesión en el sidebar
+if st.sidebar.button("🚪 Cerrar sesión"):
+    st.session_state.autenticado = False
+    st.rerun()
 
 menu = st.sidebar.radio(
     "Selecciona una opción",
