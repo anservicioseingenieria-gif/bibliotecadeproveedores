@@ -8,6 +8,7 @@ import pandas as pd
 import sqlite3
 from datetime import datetime
 import hashlib
+import matplotlib.pyplot as plt
 
 # ============================================================
 # AUTENTICACIÓN
@@ -94,6 +95,11 @@ table {
     background-color: white;
 }
 
+.best-price {
+    background-color: #90EE90 !important;
+    font-weight: bold;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -124,6 +130,9 @@ CREATE TABLE IF NOT EXISTS productos (
     precio_compra REAL,
     margen REAL,
     precio_venta REAL,
+    tipo TEXT,
+    marca TEXT,
+    presentacion TEXT,
     iva TEXT,
     fecha TEXT
 )
@@ -160,6 +169,7 @@ menu = st.sidebar.radio(
         "Dashboard",
         "Proveedores",
         "Productos",
+        "Comparador",
         "Cotizador"
     ]
 )
@@ -289,6 +299,23 @@ elif menu == "Productos":
                 f"${precio_venta:,.0f}"
             )
 
+        st.divider()
+        st.subheader("ℹ️ Información Adicional")
+
+        col3, col4, col5 = st.columns(3)
+
+        with col3:
+            tipo = st.selectbox(
+                "Tipo",
+                ["Original", "Réplica"]
+            )
+
+        with col4:
+            marca = st.text_input("Marca")
+
+        with col5:
+            presentacion = st.text_input("Presentación (ej: 6 unidades)")
+
         guardar_producto = st.form_submit_button(
             "Guardar producto"
         )
@@ -305,10 +332,13 @@ elif menu == "Productos":
                 precio_compra,
                 margen,
                 precio_venta,
+                tipo,
+                marca,
+                presentacion,
                 iva,
                 fecha
             )
-            VALUES(?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 producto,
                 referencia,
@@ -316,6 +346,9 @@ elif menu == "Productos":
                 precio_compra,
                 margen,
                 precio_venta,
+                tipo,
+                marca,
+                presentacion,
                 iva,
                 fecha
             ))
@@ -332,6 +365,127 @@ elif menu == "Productos":
     )
 
     st.dataframe(productos_df, use_container_width=True)
+
+# ============================================================
+# COMPARADOR DE PROVEEDORES
+# ============================================================
+
+elif menu == "Comparador":
+
+    st.title("📊 Comparador de Proveedores")
+
+    productos_df = pd.read_sql(
+        "SELECT * FROM productos",
+        conn
+    )
+
+    if productos_df.empty:
+        st.warning("No hay productos registrados para comparar.")
+    else:
+
+        # Obtener lista única de productos
+        lista_productos = sorted(productos_df["producto"].unique().tolist())
+
+        st.subheader("🔍 Selecciona productos para comparar")
+
+        # Seleccionar múltiples productos
+        productos_seleccionados = st.multiselect(
+            "Elige uno o más productos",
+            lista_productos,
+            default=[lista_productos[0]] if lista_productos else []
+        )
+
+        if productos_seleccionados:
+
+            st.divider()
+
+            # Para cada producto seleccionado
+            for prod_nombre in productos_seleccionados:
+
+                st.subheader(f"📦 {prod_nombre}")
+
+                # Filtrar todos los proveedores de este producto
+                prod_data = productos_df[productos_df["producto"] == prod_nombre].copy()
+
+                if not prod_data.empty:
+
+                    # Crear tabla comparativa
+                    comparativa = pd.DataFrame({
+                        "Proveedor": prod_data["proveedor"],
+                        "Marca": prod_data["marca"],
+                        "Tipo": prod_data["tipo"],
+                        "Presentación": prod_data["presentacion"],
+                        "Precio Compra": prod_data["precio_compra"].apply(lambda x: f"${x:,.0f}"),
+                        "Margen %": prod_data["margen"],
+                        "Precio Venta": prod_data["precio_venta"].apply(lambda x: f"${x:,.0f}"),
+                        "IVA": prod_data["iva"]
+                    })
+
+                    st.dataframe(comparativa, use_container_width=True)
+
+                    # Gráfica de precios
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.subheader("💰 Precios de Compra por Proveedor")
+                        
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        
+                        # Encontrar el precio más bajo
+                        precio_min = prod_data["precio_compra"].min()
+                        colores = ["#90EE90" if x == precio_min else "#0B1F3A" for x in prod_data["precio_compra"]]
+                        
+                        ax.bar(prod_data["proveedor"], prod_data["precio_compra"], color=colores)
+                        ax.set_ylabel("Precio ($)")
+                        ax.set_title(f"Precios de {prod_nombre}")
+                        ax.tick_params(axis='x', rotation=45)
+                        plt.tight_layout()
+                        st.pyplot(fig)
+
+                    with col2:
+                        st.subheader("📈 Márgenes de Ganancia")
+                        
+                        fig, ax = plt.subplots(figsize=(10, 5))
+                        ax.bar(prod_data["proveedor"], prod_data["margen"], color="#163A6B")
+                        ax.set_ylabel("Margen (%)")
+                        ax.set_title(f"Márgenes - {prod_nombre}")
+                        ax.tick_params(axis='x', rotation=45)
+                        plt.tight_layout()
+                        st.pyplot(fig)
+
+                    # Información resumida
+                    col1, col2, col3, col4 = st.columns(4)
+
+                    with col1:
+                        st.metric(
+                            "Mejor Precio",
+                            f"${prod_data['precio_compra'].min():,.0f}"
+                        )
+
+                    with col2:
+                        st.metric(
+                            "Precio Más Alto",
+                            f"${prod_data['precio_compra'].max():,.0f}"
+                        )
+
+                    with col3:
+                        diferencia = prod_data["precio_compra"].max() - prod_data["precio_compra"].min()
+                        st.metric(
+                            "Diferencia",
+                            f"${diferencia:,.0f}"
+                        )
+
+                    with col4:
+                        porcentaje_diff = (diferencia / prod_data["precio_compra"].min()) * 100
+                        st.metric(
+                            "Diferencia %",
+                            f"{porcentaje_diff:.1f}%"
+                        )
+
+                    st.divider()
+
+                else:
+                    st.info(f"No hay datos para {prod_nombre}")
 
 # ============================================================
 # COTIZADOR
